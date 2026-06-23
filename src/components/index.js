@@ -1,8 +1,7 @@
-//Auth Screens
 import Button from './Button';
 import InputComponent from './InputComponent';
 import PickupComponent from './PickerComponent';
-//App Screens
+import PrinterBanner from './PrinterBanner';
 
-export { Button, InputComponent, PickupComponent };
+export {Button, InputComponent, PickupComponent, PrinterBanner};
 

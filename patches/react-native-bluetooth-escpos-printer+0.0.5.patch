@@ -1,0 +1,67 @@
+diff --git a/node_modules/react-native-bluetooth-escpos-printer/android/build.gradle b/node_modules/react-native-bluetooth-escpos-printer/android/build.gradle
+index d86e4f5..d0cd31d 100644
+--- a/node_modules/react-native-bluetooth-escpos-printer/android/build.gradle
++++ b/node_modules/react-native-bluetooth-escpos-printer/android/build.gradle
+@@ -1,31 +1,26 @@
+ buildscript {
+     repositories {
+-        jcenter { url "http://jcenter.bintray.com/" }
+-        maven {url "http://repo.spring.io/plugins-release/"}
++        google()
+         mavenCentral()
+         maven {
+-            // All of React Native (JS, Obj-C sources, Android binaries) is installed from npm
+             url "$rootDir/../node_modules/react-native/android"
+         }
+-        maven {
+-            url 'https://maven.google.com'
+-        }
+     }
+ 
+     dependencies {
+-        classpath 'com.android.tools.build:gradle:3.1.4'
++        classpath 'com.android.tools.build:gradle:4.2.2'
+     }
+ }
+ 
+ apply plugin: 'com.android.library'
+ 
+ android {
+-    compileSdkVersion 27
+-    buildToolsVersion "27.0.3"
++    compileSdkVersion rootProject.ext.compileSdkVersion
++    buildToolsVersion rootProject.ext.buildToolsVersion
+ 
+     defaultConfig {
+-        minSdkVersion 16
+-        targetSdkVersion 24
++        minSdkVersion rootProject.ext.minSdkVersion
++        targetSdkVersion rootProject.ext.targetSdkVersion
+         versionCode 1
+         versionName "1.0"
+     }
+@@ -40,21 +35,15 @@ android {
+ }
+ 
+ repositories {
+-    jcenter { url "http://jcenter.bintray.com/" }
+-    maven {url "http://repo.spring.io/plugins-release/"}
++    google()
+     mavenCentral()
+     maven {
+-        // All of React Native (JS, Obj-C sources, Android binaries) is installed from npm
+         url "$rootDir/../node_modules/react-native/android"
+     }
+-    maven {
+-        url 'https://maven.google.com'
+-    }
+ }
+ 
+ dependencies {
+-    compile fileTree(dir: 'libs', include: ['*.jar'])
+-    implementation 'com.facebook.react:react-native:+'  // From node_modules
+-    implementation group: 'com.android.support', name: 'support-v4', version: '27.0.0'
++    implementation fileTree(dir: 'libs', include: ['*.jar'])
++    implementation 'com.facebook.react:react-native:+'
+     implementation "com.google.zxing:core:3.3.0"
+ }

@@ -15,10 +15,12 @@ import {
 } from 'react-native';
 import {Button, Icon} from 'react-native-elements';
 import {Layout} from '..';
-import {InputComponent} from '../../components';
+import {InputComponent, PrinterBanner} from '../../components';
 import {COLORS, FONTS} from '../../constants/theme';
 import api from '../../api/services';
 import AuthContext from '../../auth/Context';
+import {usePrinter} from '../../printer/PrinterContext';
+import {extractParkingDetails, printEntrySlip} from '../../printer/printSlip';
 
 const Tab = createMaterialTopTabNavigator();
 
@@ -58,8 +60,9 @@ function Card({title = 'Title', value = 0}) {
 }
 
 function TopTabComponent({route}) {
-  const [vehicleNumber, setVehicleNo] = React.useState(null);
+  const [vehicleNumber, setVehicleNo] = React.useState('');
   const [buttonLoading, setButtonLoading] = React.useState(false);
+  const {isConnected, printerMessage} = usePrinter();
 
   let vehicle = route.params;
   let TickerPostData = {
@@ -68,37 +71,61 @@ function TopTabComponent({route}) {
     vehicleType: vehicle.id,
   };
 
-  function submitTicketForm() {
-    if (vehicleNumber !== null) {
-      api
-        .entryVehicle(TickerPostData)
-        .then(res => {
-          console.log(res.data.data.message);
-          setButtonLoading(false);
-          ToastAndroid.showWithGravity(
-            res.data.data.message,
-            ToastAndroid.SHORT,
-            ToastAndroid.BOTTOM,
-          );
-          setButtonLoading(false);
-          setVehicleNo(null);
-        })
-        .catch(err => {
-          ToastAndroid.showWithGravity(
-            err.response.data.error.message,
-            ToastAndroid.SHORT,
-            ToastAndroid.BOTTOM,
-          );
-          setVehicleNo(null);
-          setButtonLoading(false);
-        });
-    } else {
+  async function submitTicketForm() {
+    if (!isConnected) {
+      ToastAndroid.showWithGravity(
+        printerMessage,
+        ToastAndroid.SHORT,
+        ToastAndroid.BOTTOM,
+      );
+      setButtonLoading(false);
+      return;
+    }
+
+    const trimmedVehicleNo = vehicleNumber?.trim().toUpperCase();
+    if (!trimmedVehicleNo) {
       ToastAndroid.showWithGravity(
         'Vehicle Number is required',
         ToastAndroid.SHORT,
         ToastAndroid.BOTTOM,
       );
-      setVehicleNo(null);
+      setButtonLoading(false);
+      return;
+    }
+
+    try {
+      const res = await api.entryVehicle({
+        ...TickerPostData,
+        vehicleNo: trimmedVehicleNo,
+      });
+      const parkingDetails = extractParkingDetails(res);
+
+      try {
+        await printEntrySlip(parkingDetails, {
+          vehicleNumber: trimmedVehicleNo,
+          vehicleTypeName: vehicle.vehicleTypeName || route.name,
+        });
+      } catch (printError) {
+        ToastAndroid.showWithGravity(
+          printError.message || 'Failed to print entry slip',
+          ToastAndroid.SHORT,
+          ToastAndroid.BOTTOM,
+        );
+      }
+
+      ToastAndroid.showWithGravity(
+        res.data?.data?.message || res.data?.message || 'Entry slip generated',
+        ToastAndroid.SHORT,
+        ToastAndroid.BOTTOM,
+      );
+      setVehicleNo('');
+    } catch (err) {
+      ToastAndroid.showWithGravity(
+        err?.response?.data?.error?.message || 'Failed to generate entry slip',
+        ToastAndroid.SHORT,
+        ToastAndroid.BOTTOM,
+      );
+    } finally {
       setButtonLoading(false);
     }
   }
@@ -152,14 +179,15 @@ function TopTabComponent({route}) {
                   required={true}
                   label="Vehicle Number"
                   leftIcon="bus"
-                  onChangeText={text => setVehicleNo(text)}
+                  onChangeText={text => setVehicleNo(text.toUpperCase())}
                   value={vehicleNumber}
                 />
                 <Button
                   title="Generate"
                   loading={buttonLoading}
+                  disabled={!isConnected}
                   buttonStyle={{
-                    backgroundColor: COLORS.darkGreen,
+                    backgroundColor: isConnected ? COLORS.darkGreen : COLORS.gray,
                     marginTop: 10,
                     borderRadius: 2,
                     paddingVertical: 10,
@@ -172,6 +200,17 @@ function TopTabComponent({route}) {
                     submitTicketForm();
                   }}
                 />
+                {!isConnected ? (
+                  <Text
+                    style={{
+                      marginTop: 10,
+                      color: COLORS.orange,
+                      fontWeight: 'bold',
+                      textAlign: 'center',
+                    }}>
+                    {printerMessage}
+                  </Text>
+                ) : null}
               </View>
             </KeyboardAvoidingView>
           </View>
@@ -257,6 +296,7 @@ const Index = () => {
           <DateTime />
         </View>
         <View style={{flex: 1, paddingHorizontal: 10}}>
+          <PrinterBanner />
           <View
             style={{
               paddingHorizontal: 10,
@@ -338,6 +378,7 @@ const Index = () => {
                       initialParams={{
                         id: tab.id,
                         employeeId: authContext?.user?.id,
+                        vehicleTypeName: tab.vehicle_type,
                       }}
                       options={{
                         title: tab.vehicle_type,

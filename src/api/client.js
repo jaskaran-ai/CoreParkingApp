@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const BASE_URL = 'https://parking-api.ripungupta.com/public/api';
+const BASE_URL = 'https://parking.ripungupta.com/public/api';
 
 // define the api
 const apiClient = axios.create({
