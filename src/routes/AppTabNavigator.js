@@ -4,7 +4,7 @@ import {TouchableOpacity} from 'react-native';
 import Icon from 'react-native-vector-icons/FontAwesome';
 import {COLORS} from '../constants';
 //Screens
-import {Account, Dashboard, Outs} from '../pages';
+import {Account, Dashboard, Outs, Vehicles} from '../pages';
 import AppTabStackNavigator from './AppTabStackNavigator';
 //Create object for navigation
 import navigation from './rootNavigator';
@@ -89,8 +89,20 @@ export default function AppTabNavigator() {
         name="Outs"
         component={Outs}
         options={{
+          unmountOnBlur: true,
           tabBarIcon: function ({size, color}) {
             return <Icon name="arrow-up" size={size * 1.2} color={color} />;
+          },
+        }}
+      />
+      <Tab.Screen
+        name="Parked"
+        component={Vehicles}
+        options={{
+          title: 'Available Vehicles',
+          tabBarLabel: 'Parked',
+          tabBarIcon: function ({size, color}) {
+            return <Icon name="car" size={size * 1.1} color={color} />;
           },
         }}
       />

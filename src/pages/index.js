@@ -8,6 +8,7 @@ import Layout from './Layout';
 import Login from './Login';
 import Report from './Reports';
 import Outs from './Outs';
+import Vehicles from './Vehicles';
 
 export {
   Account,
@@ -20,4 +21,5 @@ export {
   Login,
   Report,
   Outs,
+  Vehicles,
 };

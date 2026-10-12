@@ -19,7 +19,7 @@ import api from '../../api/auth';
 export default function index({navigation}) {
   //Deceleration Of Context
   const authContext = React.useContext(AuthContext);
-  const [emailOrMobile, setEmailOrMobile] = React.useState('9876543123');
+  const [emailOrMobile, setEmailOrMobile] = React.useState('9653338547');
   const [password, setPassword] = React.useState('123456');
   const [buttonLoading, setButtonLoading] = React.useState(false);
 
@@ -27,19 +27,21 @@ export default function index({navigation}) {
     api
       .signIn(emailOrMobile, password)
       .then(res => {
-        console.log(res.status);
-        if (res.status === 200) {
+        const user = res.data?.data?.user;
+        if (res.status === 200 && user) {
           ToastAndroid.showWithGravity(
-            res.data.data.message,
+            res.data?.data?.message || 'Login successful',
             ToastAndroid.SHORT,
             ToastAndroid.BOTTOM,
           );
-          authContext.setUser(res.data.data.user);
+          authContext.setUser(user);
           setButtonLoading(false);
         } else {
           setButtonLoading(false);
           ToastAndroid.showWithGravity(
-            res.data.error.message,
+            res.data?.error?.message ||
+              res.data?.message ||
+              'Invalid login details',
             ToastAndroid.SHORT,
             ToastAndroid.BOTTOM,
           );
@@ -47,7 +49,10 @@ export default function index({navigation}) {
       })
       .catch(err => {
         ToastAndroid.showWithGravity(
-          err.response.data.error.message,
+          err?.response?.data?.error?.message ||
+            err?.response?.data?.message ||
+            err?.message ||
+            'Login failed',
           ToastAndroid.SHORT,
           ToastAndroid.BOTTOM,
         );

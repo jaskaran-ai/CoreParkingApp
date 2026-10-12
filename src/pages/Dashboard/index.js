@@ -15,12 +15,20 @@ import {
 } from 'react-native';
 import {Button, Icon} from 'react-native-elements';
 import {Layout} from '..';
-import {InputComponent, PrinterBanner} from '../../components';
+import {InputComponent} from '../../components';
+// import {PrinterBanner} from '../../components';
 import {COLORS, FONTS} from '../../constants/theme';
 import api from '../../api/services';
+import {getApiErrorMessage} from '../../api/errors';
 import AuthContext from '../../auth/Context';
-import {usePrinter} from '../../printer/PrinterContext';
-import {extractParkingDetails, printEntrySlip} from '../../printer/printSlip';
+// import {usePrinter} from '../../printer/PrinterContext';
+// import {extractParkingDetails, printEntrySlip} from '../../printer/printSlip';
+import {formatPlateForDisplay} from '../../utils/plateNumber';
+import {
+  captureVehiclePhoto,
+  readPlateFromImage,
+  scanVehiclePlate,
+} from '../../utils/scanPlate';
 
 const Tab = createMaterialTopTabNavigator();
 
@@ -61,26 +69,107 @@ function Card({title = 'Title', value = 0}) {
 
 function TopTabComponent({route}) {
   const [vehicleNumber, setVehicleNo] = React.useState('');
+  const [vehicleImage, setVehicleImage] = React.useState(null);
+  const [plateImage, setPlateImage] = React.useState(null);
+  const [capturingVehicle, setCapturingVehicle] = React.useState(false);
+  const [scanningPlate, setScanningPlate] = React.useState(false);
   const [buttonLoading, setButtonLoading] = React.useState(false);
-  const {isConnected, printerMessage} = usePrinter();
+  // const {isConnected, printerMessage} = usePrinter();
 
   let vehicle = route.params;
   let TickerPostData = {
     vehicleNo: vehicleNumber,
     employeeId: vehicle.employeeId,
     vehicleType: vehicle.id,
+    vehicle_type_id: vehicle.id,
+    vehicle_type: vehicle.vehicleTypeName || route.name,
   };
 
-  async function submitTicketForm() {
-    if (!isConnected) {
+  function applyReadPlate(plate) {
+    if (!plate) {
       ToastAndroid.showWithGravity(
-        printerMessage,
+        'Could not read the plate. Crop closer to the number and try again.',
         ToastAndroid.SHORT,
         ToastAndroid.BOTTOM,
       );
-      setButtonLoading(false);
       return;
     }
+
+    setVehicleNo(formatPlateForDisplay(plate));
+    ToastAndroid.showWithGravity(
+      `Vehicle number: ${formatPlateForDisplay(plate)}`,
+      ToastAndroid.SHORT,
+      ToastAndroid.BOTTOM,
+    );
+  }
+
+  async function openVehicleCamera() {
+    setCapturingVehicle(true);
+    try {
+      const photo = await captureVehiclePhoto();
+      setVehicleImage(photo);
+    } catch (error) {
+      if (error?.code !== 'E_PICKER_CANCELLED') {
+        ToastAndroid.showWithGravity(
+          error?.message || 'Failed to capture vehicle photo',
+          ToastAndroid.SHORT,
+          ToastAndroid.BOTTOM,
+        );
+      }
+    } finally {
+      setCapturingVehicle(false);
+    }
+  }
+
+  async function openPlateCamera() {
+    setScanningPlate(true);
+    try {
+      const scanned = await scanVehiclePlate();
+      setPlateImage(scanned);
+      applyReadPlate(scanned.plate);
+    } catch (error) {
+      if (error?.code !== 'E_PICKER_CANCELLED') {
+        ToastAndroid.showWithGravity(
+          error?.message || 'Failed to open camera',
+          ToastAndroid.SHORT,
+          ToastAndroid.BOTTOM,
+        );
+      }
+    } finally {
+      setScanningPlate(false);
+    }
+  }
+
+  async function rereadPlateFromPhoto() {
+    if (!plateImage?.path || scanningPlate) {
+      return;
+    }
+
+    setScanningPlate(true);
+    try {
+      const plate = await readPlateFromImage(plateImage);
+      applyReadPlate(plate);
+    } catch (error) {
+      ToastAndroid.showWithGravity(
+        error?.message || 'Failed to read plate',
+        ToastAndroid.SHORT,
+        ToastAndroid.BOTTOM,
+      );
+    } finally {
+      setScanningPlate(false);
+    }
+  }
+
+  async function submitTicketForm() {
+    // if (!isConnected) {
+    //   ToastAndroid.showWithGravity(
+    //     printerMessage,
+    //     ToastAndroid.SHORT,
+    //     ToastAndroid.BOTTOM,
+    //   );
+    //   setButtonLoading(false);
+    //   return;
+    // }
 
     const trimmedVehicleNo = vehicleNumber?.trim().toUpperCase();
     if (!trimmedVehicleNo) {
@@ -93,35 +182,63 @@ function TopTabComponent({route}) {
       return;
     }
 
+    if (!vehicleImage) {
+      ToastAndroid.showWithGravity(
+        'Vehicle photo is required',
+        ToastAndroid.SHORT,
+        ToastAndroid.BOTTOM,
+      );
+      setButtonLoading(false);
+      return;
+    }
+
+    if (!plateImage) {
+      ToastAndroid.showWithGravity(
+        'Number plate photo is required',
+        ToastAndroid.SHORT,
+        ToastAndroid.BOTTOM,
+      );
+      setButtonLoading(false);
+      return;
+    }
+
     try {
       const res = await api.entryVehicle({
         ...TickerPostData,
         vehicleNo: trimmedVehicleNo,
+        vehicle_image: vehicleImage,
+        plate_image: plateImage,
+        plate_entry_method: 'scanned',
       });
-      const parkingDetails = extractParkingDetails(res);
+      // const parkingDetails = extractParkingDetails(res);
+      // try {
+      //   await printEntrySlip(parkingDetails, {
+      //     vehicleNumber: trimmedVehicleNo,
+      //     vehicleTypeName: vehicle.vehicleTypeName || route.name,
+      //   });
+      // } catch (printError) {
+      //   ToastAndroid.showWithGravity(
+      //     printError.message || 'Failed to print entry slip',
+      //     ToastAndroid.SHORT,
+      //     ToastAndroid.BOTTOM,
+      //   );
+      // }
 
-      try {
-        await printEntrySlip(parkingDetails, {
-          vehicleNumber: trimmedVehicleNo,
-          vehicleTypeName: vehicle.vehicleTypeName || route.name,
-        });
-      } catch (printError) {
-        ToastAndroid.showWithGravity(
-          printError.message || 'Failed to print entry slip',
-          ToastAndroid.SHORT,
-          ToastAndroid.BOTTOM,
-        );
-      }
-
+      const slipNumber =
+        res?.data?.data?.slip_number || res?.data?.data?.bill_number;
       ToastAndroid.showWithGravity(
-        res.data?.data?.message || res.data?.message || 'Entry slip generated',
+        slipNumber
+          ? `Entry slip generated: ${slipNumber}`
+          : res.data?.data?.message || res.data?.message || 'Entry slip generated',
         ToastAndroid.SHORT,
         ToastAndroid.BOTTOM,
       );
       setVehicleNo('');
+      setVehicleImage(null);
+      setPlateImage(null);
     } catch (err) {
       ToastAndroid.showWithGravity(
-        err?.response?.data?.error?.message || 'Failed to generate entry slip',
+        getApiErrorMessage(err, 'Failed to generate entry slip'),
         ToastAndroid.SHORT,
         ToastAndroid.BOTTOM,
       );
@@ -179,15 +296,184 @@ function TopTabComponent({route}) {
                   required={true}
                   label="Vehicle Number"
                   leftIcon="bus"
-                  onChangeText={text => setVehicleNo(text.toUpperCase())}
+                  onChangeText={text => setVehicleNo(formatPlateForDisplay(text))}
                   value={vehicleNumber}
                 />
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    marginBottom: 10,
+                  }}>
+                  <View style={{flex: 1, marginRight: 6}}>
+                    {vehicleImage?.uri ? (
+                      <View>
+                        <Text
+                          style={{
+                            color: COLORS.primary,
+                            fontWeight: 'bold',
+                            marginBottom: 6,
+                            textAlign: 'center',
+                          }}>
+                          Vehicle photo
+                        </Text>
+                        <TouchableOpacity
+                          onPress={openVehicleCamera}
+                          disabled={capturingVehicle}>
+                          <Image
+                            source={{uri: vehicleImage.uri}}
+                            style={{
+                              width: '100%',
+                              height: 120,
+                              borderRadius: 6,
+                              backgroundColor: COLORS.lightGray,
+                            }}
+                          />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={openVehicleCamera}
+                          disabled={capturingVehicle}>
+                          <Text
+                            style={{
+                              color: COLORS.primary,
+                              fontWeight: 'bold',
+                              textAlign: 'center',
+                              marginTop: 6,
+                            }}>
+                            {capturingVehicle ? 'Opening camera...' : 'Retake'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        onPress={openVehicleCamera}
+                        disabled={capturingVehicle}
+                        style={{
+                          minHeight: 120,
+                          paddingHorizontal: 8,
+                          paddingVertical: 12,
+                          borderWidth: 1,
+                          borderColor: COLORS.primary,
+                          borderRadius: 4,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}>
+                        <Icon
+                          name="car"
+                          type="font-awesome"
+                          size={18}
+                          color={COLORS.primary}
+                        />
+                        <Text
+                          style={{
+                            marginTop: 8,
+                            color: COLORS.primary,
+                            fontWeight: 'bold',
+                            textAlign: 'center',
+                          }}>
+                          {capturingVehicle
+                            ? 'Opening camera...'
+                            : 'Take vehicle photo'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  <View style={{flex: 1, marginLeft: 6}}>
+                    {plateImage?.uri ? (
+                      <View>
+                        <Text
+                          style={{
+                            color: COLORS.primary,
+                            fontWeight: 'bold',
+                            marginBottom: 6,
+                            textAlign: 'center',
+                          }}>
+                          Number plate
+                        </Text>
+                        <TouchableOpacity
+                          onPress={openPlateCamera}
+                          disabled={scanningPlate}>
+                          <Image
+                            source={{uri: plateImage.uri}}
+                            style={{
+                              width: '100%',
+                              height: 120,
+                              borderRadius: 6,
+                              backgroundColor: COLORS.lightGray,
+                            }}
+                          />
+                        </TouchableOpacity>
+                        <View
+                          style={{
+                            marginTop: 6,
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                          }}>
+                          <TouchableOpacity
+                            onPress={openPlateCamera}
+                            disabled={scanningPlate}>
+                            <Text
+                              style={{
+                                color: COLORS.primary,
+                                fontWeight: 'bold',
+                              }}>
+                              {scanningPlate ? 'Opening...' : 'Retake'}
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={rereadPlateFromPhoto}
+                            disabled={scanningPlate}>
+                            <Text
+                              style={{
+                                color: COLORS.primary,
+                                fontWeight: 'bold',
+                              }}>
+                              Read again
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        onPress={openPlateCamera}
+                        disabled={scanningPlate}
+                        style={{
+                          minHeight: 120,
+                          paddingHorizontal: 8,
+                          paddingVertical: 12,
+                          borderWidth: 1,
+                          borderColor: COLORS.primary,
+                          borderRadius: 4,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}>
+                        <Icon
+                          name="camera"
+                          type="font-awesome"
+                          size={18}
+                          color={COLORS.primary}
+                        />
+                        <Text
+                          style={{
+                            marginTop: 8,
+                            color: COLORS.primary,
+                            fontWeight: 'bold',
+                            textAlign: 'center',
+                          }}>
+                          {scanningPlate
+                            ? 'Reading plate...'
+                            : 'Scan number plate'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
                 <Button
                   title="Generate"
                   loading={buttonLoading}
-                  disabled={!isConnected}
+                  // disabled={!isConnected}
                   buttonStyle={{
-                    backgroundColor: isConnected ? COLORS.darkGreen : COLORS.gray,
+                    backgroundColor: COLORS.darkGreen,
+                    // backgroundColor: isConnected ? COLORS.darkGreen : COLORS.gray,
                     marginTop: 10,
                     borderRadius: 2,
                     paddingVertical: 10,
@@ -200,7 +486,7 @@ function TopTabComponent({route}) {
                     submitTicketForm();
                   }}
                 />
-                {!isConnected ? (
+                {/* {!isConnected ? (
                   <Text
                     style={{
                       marginTop: 10,
@@ -210,7 +496,7 @@ function TopTabComponent({route}) {
                     }}>
                     {printerMessage}
                   </Text>
-                ) : null}
+                ) : null} */}
               </View>
             </KeyboardAvoidingView>
           </View>
@@ -285,48 +571,36 @@ const Index = () => {
             paddingVertical: 15,
             flexDirection: 'row',
             justifyContent: 'space-between',
+            alignItems: 'flex-start',
           }}>
+          <View>
+            <Text
+              style={[
+                FONTS.h3,
+                {fontWeight: 'bold', color: COLORS.darkTransparent},
+              ]}>
+              Dashboard
+            </Text>
+            <DateTime />
+          </View>
           <Text
             style={[
-              FONTS.h3,
-              {fontWeight: 'bold', color: COLORS.darkTransparent},
-            ]}>
-            Dashboard
+              FONTS.h4,
+              {
+                fontWeight: 'bold',
+                color: COLORS.primary,
+                textAlign: 'right',
+                maxWidth: '55%',
+              },
+            ]}
+            numberOfLines={1}>
+            {authContext?.user?.name}
           </Text>
-          <DateTime />
         </View>
         <View style={{flex: 1, paddingHorizontal: 10}}>
-          <PrinterBanner />
-          <View
-            style={{
-              paddingHorizontal: 10,
-              marginVertical: 10,
-            }}>
-            <View
-              style={{
-                flexDirection: 'row',
-                paddingVertical: 10,
-                justifyContent: 'space-between',
-              }}>
-              <Text
-                style={[FONTS.h4, {fontWeight: 'bold', color: COLORS.primary}]}>
-                {authContext?.user?.name}
-              </Text>
-              <TouchableOpacity
-                onPress={() => {
-                  ToastAndroid.showWithGravity(
-                    'Refreshing',
-                    ToastAndroid.SHORT,
-                    ToastAndroid.BOTTOM,
-                  );
-                  getVehicleTypeData();
-                }}>
-                <Icon name="refresh" color={COLORS.primary} size={25} />
-              </TouchableOpacity>
-            </View>
-          </View>
+          {/* <PrinterBanner /> */}
 
-          <View
+          {/* <View
             style={{
               paddingVertical: 10,
             }}>
@@ -345,19 +619,24 @@ const Index = () => {
               ]}>
               Today Collection : {vehicles.totalAmount} RS
             </Text>
-          </View>
+          </View> */}
 
           {loadingFairs ? (
             <View style={{flex: 1, justifyContent: 'center'}}>
               <ActivityIndicator size="large" color={COLORS.primary} />
             </View>
-          ) : vehicles?.fairs.length !== 0 ? (
+          ) : vehicles?.fairs?.length !== 0 ? (
             <NavigationContainer independent={true}>
               <Tab.Navigator
                 initialRouteName="Parking"
                 screenOptions={{
+                  tabBarScrollEnabled: true,
                   tabBarStyle: {
                     backgroundColor: COLORS.white,
+                  },
+                  tabBarItemStyle: {
+                    width: 'auto',
+                    paddingHorizontal: 16,
                   },
                   tabBarLabelStyle: {fontSize: 13, fontWeight: 'bold'},
                   tabBarActiveTintColor: COLORS.white,

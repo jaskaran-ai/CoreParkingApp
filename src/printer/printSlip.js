@@ -53,6 +53,7 @@ export function extractParkingDetails(response) {
 		level1?.ticket,
 		level1?.ticket_details,
 		level1?.ticketDetails,
+		level1?.session,
 		level1?.vehile,
 		root?.parkingDetails,
 		root?.parking_details,
@@ -70,8 +71,10 @@ export function extractParkingDetails(response) {
 			'vehicleNo',
 			'vehicleNumber',
 			'vehicle_no',
+			'plate_number',
 			'entry_date',
 			'entryDate',
+			'checked_in_at',
 			'id',
 			'parking_id',
 			'parkingId',
@@ -104,8 +107,10 @@ export function extractParkingDetails(response) {
 		'vehicleNo',
 		'vehicleNumber',
 		'vehicle_no',
+		'plate_number',
 		'entry_date',
 		'entryDate',
+		'checked_in_at',
 		'id',
 		'parking_id',
 		'parkingId',
@@ -207,15 +212,40 @@ export function enrichSearchDetails(response) {
 		) || 1,
 	);
 
+	const session = root.session && typeof root.session === 'object' ? root.session : {};
+	const vehicleType =
+		details.vehicle_type ||
+		details.vehicleType ||
+		details.get_vehicle_type_and_fare?.vehicle_type ||
+		session.vehicle_type ||
+		session.get_vehicle_type_and_fare?.vehicle_type ||
+		root.vehicle_type ||
+		'';
 	const amount =
+		details.total_payable_amount ??
+		details.amount ??
+		session.total_payable_amount ??
+		session.amount ??
 		root.totalPayableAmount ??
 		root.total_payable_amount ??
 		root.amount ??
-		calculateParkingAmount(details, parkingDays);
+		calculateParkingAmount(
+			{
+				...details,
+				get_vehicle_type_and_fare:
+					details.get_vehicle_type_and_fare || session.get_vehicle_type_and_fare,
+			},
+			parkingDays,
+		);
 
 	return {
 		...details,
-		totaldays: parkingDays,
+		vehicle_type: vehicleType,
+		get_vehicle_type_and_fare:
+			details.get_vehicle_type_and_fare ||
+			session.get_vehicle_type_and_fare ||
+			(vehicleType ? {vehicle_type: vehicleType} : null),
+		totaldays: details.totaldays || session.totaldays || parkingDays,
 		amount,
 	};
 }
@@ -245,8 +275,11 @@ export function normalizeParkingRecord(details) {
 		'vehicleNo',
 		'vehicleNumber',
 		'vehicle_no',
+		'plate_number',
 	]);
 	const billNumber = pickValue(details, [
+		'slip_number',
+		'slipNumber',
 		'bill_number',
 		'billNumber',
 		'bill_no',
@@ -257,6 +290,18 @@ export function normalizeParkingRecord(details) {
 		...details,
 		id,
 		vehicle_number: vehicleNumber || details.vehicle_number,
+		entry_date:
+			pickValue(details, ['entry_date', 'entryDate', 'checked_in_at']) ||
+			details.entry_date,
+		out_date:
+			pickValue(details, [
+				'out_date',
+				'outDate',
+				'exit_date',
+				'exitDate',
+				'checked_out_at',
+			]) || details.out_date,
+		slip_number: billNumber || details.slip_number,
 		bill_number: billNumber || details.bill_number,
 		vehicle_type:
 			pickValue(details?.get_vehicle_type_and_fare, ['vehicle_type', 'vehicleType']) ||
@@ -292,7 +337,11 @@ export function isValidParkingRecord(details) {
 	const hasIdentifier = hasValue(record.id);
 	const hasVehicle = hasValue(record.vehicle_number);
 	const hasBill = hasValue(record.bill_number);
-	const hasEntry = pickValue(record, ['entry_date', 'entryDate']);
+	const hasEntry = pickValue(record, [
+		'entry_date',
+		'entryDate',
+		'checked_in_at',
+	]);
 
 	return Boolean(
 		(hasIdentifier && (hasVehicle || hasBill)) || (hasVehicle && hasEntry),
@@ -306,14 +355,23 @@ export function buildExitPrintDetails(savedDetails, apiDetails = {}) {
 			? apiDetails
 			: pickParkingFields(apiDetails)),
 		vehicle_number:
-			pickValue(apiDetails, ['vehicle_number', 'vehicleNo', 'vehicle_no']) ||
-			savedDetails?.vehicle_number,
+			pickValue(apiDetails, [
+				'vehicle_number',
+				'vehicleNo',
+				'vehicle_no',
+				'plate_number',
+			]) || savedDetails?.vehicle_number,
 		entry_date:
-			pickValue(apiDetails, ['entry_date', 'entryDate']) ||
+			pickValue(apiDetails, ['entry_date', 'entryDate', 'checked_in_at']) ||
 			savedDetails?.entry_date,
 		out_date:
-			pickValue(apiDetails, ['out_date', 'outDate', 'exit_date', 'exitDate']) ||
-			savedDetails?.out_date,
+			pickValue(apiDetails, [
+				'out_date',
+				'outDate',
+				'exit_date',
+				'exitDate',
+				'checked_out_at',
+			]) || savedDetails?.out_date,
 		totaldays:
 			pickValue(apiDetails, ['totaldays', 'totalDays', 'total_days', 'days']) ||
 			savedDetails?.totaldays,
@@ -355,9 +413,18 @@ function pickParkingFields(details) {
 	};
 
 	assign('id', pickValue(details, ['id']));
-	assign('vehicle_number', pickValue(details, ['vehicle_number', 'vehicleNo', 'vehicle_no']));
-	assign('entry_date', pickValue(details, ['entry_date', 'entryDate']));
-	assign('out_date', pickValue(details, ['out_date', 'outDate', 'exit_date', 'exitDate']));
+	assign(
+		'vehicle_number',
+		pickValue(details, ['vehicle_number', 'vehicleNo', 'vehicle_no', 'plate_number']),
+	);
+	assign(
+		'entry_date',
+		pickValue(details, ['entry_date', 'entryDate', 'checked_in_at']),
+	);
+	assign(
+		'out_date',
+		pickValue(details, ['out_date', 'outDate', 'exit_date', 'exitDate', 'checked_out_at']),
+	);
 	assign(
 		'totaldays',
 		pickValue(details, ['totaldays', 'totalDays', 'total_days', 'days']),
@@ -397,12 +464,25 @@ function formatVehicleNumber(value) {
 		return '-';
 	}
 
+	const compact = String(value)
+		.toUpperCase()
+		.replace(/[^A-Z0-9]/g, '');
+	const indian = compact.match(/^([A-Z]{2})([0-9]{1,2})([A-Z]{1,3})([0-9]{4})$/);
+	if (indian) {
+		return `${indian[1]}${indian[2]} ${indian[3]} ${indian[4]}`;
+	}
+
 	return String(value).trim().toUpperCase();
 }
 
 function normalizeDetails(details = {}, extras = {}) {
 	const rawVehicleNumber =
-		pickValue(details, ['vehicle_number', 'vehicleNo', 'vehicle_no']) ||
+		pickValue(details, [
+			'vehicle_number',
+			'vehicleNo',
+			'vehicle_no',
+			'plate_number',
+		]) ||
 		extras.vehicleNumber ||
 		'-';
 
@@ -427,6 +507,7 @@ function normalizeDetails(details = {}, extras = {}) {
 				'entryDate',
 				'entry_time',
 				'entryTime',
+				'checked_in_at',
 				'created_at',
 				'createdAt',
 				'date',
@@ -434,14 +515,21 @@ function normalizeDetails(details = {}, extras = {}) {
 			extras.entryDate ||
 			formatSlipDateTime(),
 		out_date:
-			pickValue(details, ['out_date', 'outDate', 'exit_date', 'exitDate']) ||
+			pickValue(details, [
+				'out_date',
+				'outDate',
+				'exit_date',
+				'exitDate',
+				'checked_out_at',
+			]) ||
 			extras.outDate ||
 			null,
 		totaldays:
 			pickValue(details, ['totaldays', 'totalDays', 'total_days', 'days', 'parkingDays']) ||
 			extras.totaldays ||
 			calculateParkingDays(
-				pickValue(details, ['entry_date', 'entryDate']) || extras.entryDate,
+				pickValue(details, ['entry_date', 'entryDate', 'checked_in_at']) ||
+					extras.entryDate,
 			),
 		amount:
 			pickValue(details, [
